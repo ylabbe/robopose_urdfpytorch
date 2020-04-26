@@ -29,7 +29,7 @@ docs_requirements = [
     'sphinx-automodapi'  # For generating nice tables
 ]
 
-exec(open('urdfpy/version.py').read())
+exec(open('urdfpytorch/version.py').read())
 
 setup(
     name='urdfpytorch',
@@ -51,7 +51,7 @@ setup(
         'Natural Language :: English',
         'Topic :: Scientific/Engineering'
     ],
-    packages=['urdfpy'],
+    packages=['urdfpytorch'],
     setup_requires = requirements,
     install_requires=requirements,
     extras_require={
