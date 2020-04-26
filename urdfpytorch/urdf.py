@@ -1,4 +1,5 @@
 from collections import OrderedDict
+import torch
 import copy
 import os
 import time
@@ -1441,16 +1442,16 @@ class JointLimit(URDFType):
     """
 
     _ATTRIBS = {
-        'effort': (float, True),
-        'velocity': (float, True),
+        'effort': (float, False),
+        'velocity': (float, False),
         'lower': (float, False),
         'upper': (float, False),
     }
     _TAG = 'limit'
 
     def __init__(self, effort, velocity, lower=None, upper=None):
-        self.effort = effort
-        self.velocity = velocity
+        # self.effort = effort
+        # self.velocity = velocity
         self.lower = lower
         self.upper = upper
 
@@ -2339,7 +2340,7 @@ class Joint(URDFType):
         else:
             raise ValueError('Invalid configuration')
 
-    def get_child_poses(self, cfg, n_cfgs):
+    def get_child_poses(self, cfg, n_cfgs, dtype=None, device=None):
         """Computes the child pose relative to a parent pose for a given set of 
         configuration values.
 
@@ -2363,20 +2364,29 @@ class Joint(URDFType):
         poses : (n,4,4) float
             The poses of the child relative to the parent.
         """
+        if cfg is not None:
+            assert isinstance(cfg, torch.Tensor)
+            def as_tensor(x):
+                return torch.as_tensor(x).to(cfg.dtype).to(cfg.device)
+        else:
+            def as_tensor(x):
+                return torch.as_tensor(x).to(device).to(dtype)
+
         if cfg is None:
-            return np.tile(self.origin, (n_cfgs, 1, 1))
+            return as_tensor(np.tile(self.origin, (n_cfgs, 1, 1)))
         elif self.joint_type == 'fixed':
-            return np.tile(self.origin, (n_cfgs, 1, 1))
+            return as_tensor(np.tile(self.origin, (n_cfgs, 1, 1)))
         elif self.joint_type in ['revolute', 'continuous']:
             if cfg is None:
-                cfg = np.zeros(n_cfgs)
-            return np.matmul(self.origin, self._rotation_matrices(cfg, self.axis))
+                cfg = as_tensor(np.zeros(n_cfgs))
+            return torch.matmul(as_tensor(self.origin),
+                                self._rotation_matrices(cfg, self.axis))
         elif self.joint_type == 'prismatic':
             if cfg is None:
-                cfg = np.zeros(n_cfgs)
-            translation = np.tile(np.eye(4), (n_cfgs, 1, 1))
-            translation[:,:3,3] = self.axis * cfg[:,np.newaxis]
-            return np.matmul(self.origin, translation)
+                cfg = as_tensor(np.zeros(n_cfgs))
+            translation = as_tensor(np.tile(np.eye(4), (n_cfgs, 1, 1)))
+            translation[:,:3,3] = as_tensor(self.axis) * cfg[:,np.newaxis]
+            return torch.matmul(self.origin, translation)
         elif self.joint_type == 'planar':
             raise NotImplementedError()
         elif self.joint_type == 'floating':
@@ -2428,22 +2438,26 @@ class Joint(URDFType):
         rots : (n,4,4)
             The rotation matrices
         """
+        assert isinstance(angles, torch.Tensor)
+        def as_tensor(x):
+            return torch.as_tensor(x).to(angles.dtype).to(angles.device)
+
         axis = axis / np.linalg.norm(axis)
-        sina = np.sin(angles)
-        cosa = np.cos(angles)
-        M = np.tile(np.eye(4), (len(angles), 1, 1))
+        sina = torch.sin(angles)
+        cosa = torch.cos(angles)
+        M = as_tensor(np.tile(np.eye(4), (len(angles), 1, 1)))
         M[:,0,0] = cosa
         M[:,1,1] = cosa
         M[:,2,2] = cosa
         M[:,:3,:3] += (
-            np.tile(np.outer(axis, axis), (len(angles), 1, 1)) *
+            as_tensor(np.tile(np.outer(axis, axis), (len(angles), 1, 1))) *
             (1.0 - cosa)[:, np.newaxis, np.newaxis]
         )
-        M[:,:3,:3] += np.tile(np.array([
+        M[:,:3,:3] += as_tensor(np.tile(np.array([
             [0.0, -axis[2], axis[1]],
             [axis[2], 0.0, -axis[0]],
             [-axis[1], axis[0], 0.0]]
-        ), (len(angles), 1, 1)) * sina[:, np.newaxis, np.newaxis]
+        ), (len(angles), 1, 1))) * sina[:, np.newaxis, np.newaxis]
         return M
 
     def copy(self, prefix='', scale=None):
@@ -3070,6 +3084,12 @@ class URDF(URDFType):
             position the links relative to the base link's frame, or a single
             nx4x4 matrix if ``link`` is specified.
         """
+        assert isinstance(cfgs, torch.Tensor)
+        device, dtype = cfgs.device, cfgs.dtype
+
+        def as_tensor(x):
+            return x.to(device).to(dtype)
+
         joint_cfgs, n_cfgs = self._process_cfgs(cfgs)
 
         # Process link set
@@ -3096,7 +3116,7 @@ class URDF(URDFType):
         for lnk in self._reverse_topo:
             if lnk not in link_set:
                 continue
-            poses = np.tile(np.eye(4, dtype=np.float64), (n_cfgs, 1, 1))
+            poses = torch.as_tensor(np.tile(np.eye(4, dtype=np.float64), (n_cfgs, 1, 1))).to(device).to(dtype)
             path = self._paths_to_base[lnk]
             for i in range(len(path) - 1):
                 child = path[i]
@@ -3111,10 +3131,10 @@ class URDF(URDFType):
                         cfg_vals = joint.mimic.multiplier * cfg_vals + joint.mimic.offset
                 elif joint in joint_cfgs:
                     cfg_vals = joint_cfgs[joint]
-                poses = np.matmul(joint.get_child_poses(cfg_vals, n_cfgs), poses)
+                poses = torch.matmul(joint.get_child_poses(cfg_vals, n_cfgs, dtype=dtype, device=device), poses)
 
                 if parent in fk:
-                    poses = np.matmul(fk[parent], poses)
+                    poses = torch.matmul(fk[parent], poses)
                     break
             fk[lnk] = poses
 
@@ -3185,7 +3205,7 @@ class URDF(URDFType):
         fk = OrderedDict()
         for link in lfk:
             for visual in link.visuals:
-                fk[visual.geometry] = np.matmul(lfk[link], visual.origin)
+                fk[visual.geometry] = torch.matmul(lfk[link], torch.as_tensor(visual.origin).to(cfgs.device).to(cfgs.dtype))
         return fk
 
     def visual_trimesh_fk(self, cfg=None, links=None):
@@ -3892,7 +3912,7 @@ class URDF(URDFType):
                     joint_cfg[joint] = cfgs[joint]
                 if n_cfgs is None:
                     n_cfgs = len(cfgs[joint])
-        elif isinstance(cfgs, (list, tuple, np.ndarray)):
+        elif isinstance(cfgs, (list, tuple, torch.Tensor)):
             n_cfgs = len(cfgs)
             if isinstance(cfgs[0], dict):
                 for cfg in cfgs:
@@ -3904,7 +3924,8 @@ class URDF(URDFType):
             elif cfgs[0] is None:
                 pass
             else:
-                cfgs = np.asanyarray(cfgs, dtype=np.float64)
+                # cfgs = np.asanyarray(cfgs, dtype=np.float64)
+                cfgs = torch.as_tensor(cfgs)
                 for i, j in enumerate(self.actuated_joints):
                     joint_cfg[j] = cfgs[:,i]
         else:

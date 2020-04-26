@@ -32,7 +32,7 @@ docs_requirements = [
 exec(open('urdfpy/version.py').read())
 
 setup(
-    name='urdfpy',
+    name='urdfpytorch',
     version=__version__,
     description='URDF parser and manipulator for Python',
     long_description='URDF parser and manipulator for Python',
