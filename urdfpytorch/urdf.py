@@ -2386,7 +2386,7 @@ class Joint(URDFType):
                 cfg = as_tensor(np.zeros(n_cfgs))
             translation = as_tensor(np.tile(np.eye(4), (n_cfgs, 1, 1)))
             translation[:,:3,3] = as_tensor(self.axis) * cfg[:,np.newaxis]
-            return torch.matmul(self.origin, translation)
+            return torch.matmul(as_tensor(self.origin), translation)
         elif self.joint_type == 'planar':
             raise NotImplementedError()
         elif self.joint_type == 'floating':
