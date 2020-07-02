@@ -199,6 +199,9 @@ def get_filename(base_path, file_path, makedirs=False):
         The resolved filepath -- just the normal ``file_path`` if it was an
         absolute path, otherwise that path joined to ``base_path``.
     """
+    file_path = file_path.replace('package://', '../')
+    # print(base_path)
+    # print(file_path)
     fn = file_path
     if not os.path.isabs(file_path):
         fn = os.path.join(base_path, file_path)
