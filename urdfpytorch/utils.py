@@ -1,10 +1,22 @@
 """Utilities for URDF parsing.
 """
 import os
+from pathlib import Path
 
 from lxml import etree as ET
 import numpy as np
 import trimesh
+
+
+def resolve_package_path(urdf_path, mesh_path):
+    urdf_path = Path(urdf_path)
+    search_dir = urdf_path
+    relative_path = Path(str(mesh_path).replace('package://', ''))
+    while True:
+        absolute_path = (search_dir / relative_path)
+        if absolute_path.exists():
+            return absolute_path
+        search_dir = search_dir.parent
 
 
 def rpy_to_matrix(coords):
@@ -199,7 +211,6 @@ def get_filename(base_path, file_path, makedirs=False):
         The resolved filepath -- just the normal ``file_path`` if it was an
         absolute path, otherwise that path joined to ``base_path``.
     """
-    file_path = file_path.replace('package://', '../')
     # print(base_path)
     # print(file_path)
     fn = file_path
@@ -209,6 +220,8 @@ def get_filename(base_path, file_path, makedirs=False):
         d, _ = os.path.split(fn)
         if not os.path.exists(d):
             os.makedirs(d)
+    if not Path(fn).exists():
+        fn = str(resolve_package_path(base_path, file_path))
     return fn
 
 
